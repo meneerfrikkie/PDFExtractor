@@ -2,15 +2,13 @@ import fitz
 import os
 import sqlite3
 
-def extract_figure_captions(txt_file):
+def extract_table_captions(txt_file):
     with open(txt_file, "r") as file:
         caption = []
         for line in file:
             line = line.strip()
-            if line.startswith("Figure"):
+            if line.startswith("Table"):
                 caption.append(line)
-            elif line.startswith("Fig."):
-                yield line
             elif caption and line:  # continue adding lines to the caption
                 caption.append(line)
             elif caption and not line:  # empty line indicates end of caption
@@ -19,9 +17,58 @@ def extract_figure_captions(txt_file):
         if caption:  # yield the last caption
             yield " ".join(caption)
 
-# Define a function to find images in a PDF file
+def find_tables(pdf_file, output_dir, db_file):
+    # Create the output directory if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Open the PDF file using PyMuPDF
+    with fitz.open(pdf_file) as doc:
+        # Create a connection to the database
+        conn = sqlite3.connect(db_file)
+        c = conn.cursor()
+        
+        # Create a table for the table data if it doesn't exist
+        c.execute('''CREATE TABLE IF NOT EXISTS tables
+                     (page INTEGER, caption TEXT)''')
+        
+        # Iterate through each page in the PDF document
+        for page_index, page in enumerate(doc):
+            # Get the text of the page
+            page_text = page.get_text()
+            # Export the text to a separate txt file in the "pages" folder
+            with open(f"{output_dir}/page_{page_index+1}.txt", "w") as txt_file:
+                txt_file.write(page_text)
+            # Extract table captions from the page text
+            table_captions = extract_table_captions(f"{output_dir}/page_{page_index+1}.txt")
+            for caption in table_captions:
+                print(f"Page {page_index+1}: {caption}")
+                # Insert the table data into the database
+                c.execute("INSERT INTO tables VALUES (?, ?)",
+                          (page_index+1, caption))
+        # Commit the changes and close the connection
+        conn.commit()
+        conn.close()
+
+# Function to extract figure captions from a text file
+def extract_figure_captions(txt_file):
+    with open(txt_file, "r") as file:
+        caption = []
+        for line in file:
+            line = line.strip()
+            if line.startswith("Figure") or line.startswith("Fig."):
+                caption.append(line)
+            elif caption and line:  # continue adding lines to the caption
+                caption.append(line)
+            elif caption and not line:  # empty line indicates end of caption
+                yield " ".join(caption)
+                caption = []
+        if caption:  # yield the last caption
+            yield " ".join(caption)
+
+# Function to find images in a PDF file and extract figure captions
 def find_images(pdf_file, output_dir, db_file):
-    # Create the "pages" folder if it doesn't exist
+    # Create the output directory if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
@@ -63,3 +110,5 @@ def find_images(pdf_file, output_dir, db_file):
 
 # Call the function with the PDF file path, output directory, and database file
 find_images("data/390.pdf", "pages", "figures.db")
+print("\n")
+find_tables("data/390.pdf", "pages", "figures.db")
